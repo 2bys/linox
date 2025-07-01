@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from typing import Union
 
 import jax
+import jax.extend
 import jax.numpy as jnp
 
 import linox  # noqa: TCH001
@@ -59,7 +60,7 @@ into :class:`jax.numpy.dtype`\\ s before further internal processing."""
 
 # Scalars, Arrays and Matrices
 ScalarLike = (
-    int | float | complex | jax.core.Primitive | jnp.number  # | linox._matrix.Scalar
+    int | float | complex | jax.extend.core.Primitive | jnp.number  # | linox._matrix.Scalar
 )
 """Object that can be converted to a scalar value.
 
