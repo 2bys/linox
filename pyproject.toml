@@ -12,8 +12,8 @@ version = "0.0.3"
 
 
 authors = [
+  { name = "Lenard Rommel", email = "lenardrommel@tue.ellis.eu" },
   { name = "Tobias Weber", email = "t.weber@uni-tuebingen.de" },
-  { name = "Lenard Rommel", email = "lenardrommel@icloud.com" },
 ]
 
 keywords = ["Linear operators", "Operators", "Matrix-free linear algebra"]
