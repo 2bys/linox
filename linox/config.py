@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import sys
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -89,9 +90,10 @@ def warn(msg: str, *, prefix: str = "Warning") -> None:
         msg: Message to print.
         prefix: Optional prefix for the message, defaults to 'Warning'.
     """
-    emit(DebugEvent(kind="warn", msg=f"{prefix}: {msg}"))
+    text = f"{prefix}: {msg}"
+    emit(DebugEvent(kind="warn", msg=text))
     if _DEBUG:
-        pass
+        print(text, file=sys.stderr)
 
 
 _MAX_DENSE_N: int = 2000

@@ -62,8 +62,6 @@ from .operators.arithmetic import (
     qr,
     symmetrize,
 )
-from .operators.arithmetic import InverseLinearOperator as Inverse  # Alias for inv()
-from .operators.arithmetic import PseudoInverseLinearOperator as PseudoInverse
 from .operators.arithmetic import leigh as _leigh_impl
 from .operators.arithmetic import lsolve as _lsolve_impl
 from .operators.arithmetic import lsqrt as _lsqrt_impl
@@ -298,13 +296,23 @@ def transpose(a: LinearlyOperatorLike) -> LinearOperator:
 
 
 def inv(a: LinearlyOperatorLike) -> LinearOperator:
-    """Compute the inverse of a linear operator (lazy)."""
-    return Inverse(ensure_linop(a))
+    """Compute the inverse of a linear operator.
+
+    Uses the exact structured inverse when one is registered (e.g. the
+    Woodbury form for :class:`IsotropicScalingPlusSymmetricLowRank`) and a
+    lazy :class:`InverseLinearOperator` otherwise. Same as
+    ``inverse(a, method="exact")``.
+    """
+    return linverse(ensure_linop(a))
 
 
 def pinv(a: LinearlyOperatorLike) -> LinearOperator:
-    """Compute the pseudo-inverse of a linear operator (lazy)."""
-    return PseudoInverse(ensure_linop(a))
+    """Compute the pseudo-inverse of a linear operator.
+
+    Uses a structured pseudo-inverse when one is registered, and a lazy
+    :class:`PseudoInverseLinearOperator` otherwise.
+    """
+    return lpinverse(ensure_linop(a))
 
 
 def kron(a: LinearlyOperatorLike, b: LinearlyOperatorLike) -> LinearOperator:
@@ -420,6 +428,15 @@ def _has_structured_solver(op: LinearOperator) -> bool:
         return _has_structured_solver(op.operator)
     if isinstance(op, InverseLinearOperator):
         return _has_structured_solver(op.operator)
+    return False
+
+
+def _is_dense_storage(op: LinearOperator) -> bool:
+    """Whether ``op`` is a dense matrix, possibly scaled or inverted."""
+    if isinstance(op, Matrix):
+        return True
+    if isinstance(op, ScaledLinearOperator | InverseLinearOperator):
+        return _is_dense_storage(op.operator)
     return False
 
 
@@ -579,6 +596,11 @@ def sqrt(a: LinearlyOperatorLike, method: str = "auto", **kwargs) -> LinearOpera
     root for a :class:`Diagonal`, and so on). Request ``method="lanczos"``
     to get the principal square root ``a**(1/2)`` via a Krylov method.
 
+    With ``method="auto"``, operators larger than
+    :func:`linox.config.get_max_dense_n` use a structured exact factor when
+    one exists, and the Lanczos square root otherwise. A dense
+    :class:`Matrix` always takes the Lanczos path at that size.
+
     Args:
         a: Linear operator.
         method: One of ``"auto"``, ``"exact"``, ``"approx"``, ``"lanczos"``.
@@ -589,8 +611,10 @@ def sqrt(a: LinearlyOperatorLike, method: str = "auto", **kwargs) -> LinearOpera
     if m in {"lanczos", "approx"}:
         # An explicit approximate request is honoured as given. Only when
         # `auto` resolution picked the Krylov path do we prefer a structured
-        # exact factorisation if one happens to exist.
-        if method == "auto":
+        # exact factorisation if one happens to exist -- but not for a dense
+        # `Matrix`, whose "exact" rule is a full O(n^3) Cholesky, which is
+        # what the large-n heuristic is avoiding.
+        if method == "auto" and not _is_dense_storage(op):
             try:
                 return _lsqrt_impl(op)
             except NotImplementedError:
@@ -637,6 +661,17 @@ def inverse(a: LinearlyOperatorLike, method: str = "auto", **kwargs) -> LinearOp
 
     if m == "exact":
         return linverse(op)
+
+    # As in `sqrt`: when `auto` resolution picked the approximate path only
+    # because the operator is large, still prefer an exact structured inverse
+    # (or a lazy inverse backed by a structured solver) if one exists. An
+    # explicit approximate request is honoured as given.
+    # A dense `Matrix` also has an "exact" rule, but that is a full O(n^3)
+    # `jnp.linalg.inv` -- exactly what the large-n heuristic is avoiding.
+    if method == "auto" and not _is_dense_storage(op):
+        exact = linverse(op)
+        if type(exact) is not InverseLinearOperator or _has_structured_solver(op):
+            return exact
 
     if m == "approx":
         # Default to LSMR for approximate inverse

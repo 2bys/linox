@@ -361,14 +361,8 @@ def test_inverse_scaled_no_densification(spd_matrix) -> None:
 # ============================================================================
 
 
-@pytest.mark.xfail(
-    reason="Known issue: IsotropicAdditiveLinearOperator.lcholesky densifies"
-)
 def test_isotropic_add_cholesky_should_not_densify(spd_matrix, small_size) -> None:
-    """Test that Cholesky of isotropic add uses eigendecomposition.
-
-    This is currently a known issue in the codebase.
-    """
+    """Test that Cholesky of isotropic add uses eigendecomposition."""
     from linox.operators.arithmetic import lcholesky
 
     A = Matrix(spd_matrix)
@@ -379,12 +373,8 @@ def test_isotropic_add_cholesky_should_not_densify(spd_matrix, small_size) -> No
         detector.assert_no_densification("Cholesky of isotropic additive")
 
 
-@pytest.mark.xfail(reason="Known issue: CongruenceTransform diagonal densifies")
 def test_congruence_diagonal_should_not_densify(matrix_a, spd_matrix) -> None:
-    """Test that diagonal of congruence transform doesn't densify.
-
-    This is currently a known issue in the codebase.
-    """
+    """Test that diagonal of congruence transform doesn't densify."""
     from linox.operators.arithmetic import CongruenceTransform
 
     A = Matrix(matrix_a)

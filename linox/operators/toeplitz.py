@@ -15,8 +15,6 @@ from linox.operators.arithmetic import diagonal, lsolve
 from linox.operators.base import LinearOperator
 from linox.operators.special import Identity
 
-jax.config.update("jax_enable_x64", True)
-
 # --------------------------------------------------------------------------- #
 # Toeplitz Linear Operator
 # --------------------------------------------------------------------------- #

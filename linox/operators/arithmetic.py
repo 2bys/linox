@@ -975,7 +975,10 @@ class ScaledLinearOperator(LinearOperator):
     def __init__(self, operator: LinearOperator, scalar: ScalarLike) -> None:
         self.operator = utils.as_linop(operator)
         scalar = jnp.asarray(scalar)
-        dtype = jnp.result_type(operator.dtype, scalar.dtype)
+        # Promote against the array, not `scalar.dtype`: the dtype alone drops
+        # JAX's weak typing, so a Python `2.0` would upcast a float32 operator
+        # to float64 under x64. The operator's dtype is the user's choice.
+        dtype = jnp.result_type(self.operator.dtype, scalar)
         self.scalar = utils.as_scalar(scalar, dtype)
         super().__init__(shape=operator.shape, dtype=dtype)
 
@@ -1308,11 +1311,35 @@ def congruence_transform(A: ArithmeticType, B: ArithmeticType) -> LinearOperator
     return CongruenceTransform(A, B)
 
 
+@congruence_transform.dispatch
+def _(A: ArithmeticType, B: ScaledLinearOperator) -> LinearOperator:
+    # A (cB) A^T = c (A B A^T): pull the scalar out so the inner transform can
+    # pick up whatever structured rule exists for ``B.operator``.
+    return B.scalar * congruence_transform(A, B.operator)
+
+
 @diagonal.dispatch(precedence=5)
 def _(a: CongruenceTransform) -> jax.Array:
-    A = a._A._todense()
-    B = a._B._todense()
-    return jnp.einsum("...ij,...jk,...ik->...i", A, B, A)
+    r"""Diagonal of :math:`A B A^\top` without forming the product.
+
+    Sums (e.g. ``IsotropicScalingPlusSymmetricLowRank``) and scaled operators
+    are split up so each piece can use its own structured rule. Otherwise
+    ``A`` is densified (shape ``(n, k)``) and
+    :math:`\operatorname{diag}(A B A^\top)_i = \sum_j A_{ij} (B A^\top)_{ji}`
+    is evaluated at :math:`O(n k^2)` cost, never materialising the
+    ``(n, n)`` product or a dense ``B``.
+    """
+    B = a._B
+    if isinstance(B, AddLinearOperator):
+        return reduce(operator.add, (diagonal(congruence_transform(a._A, op)) for op in B.operator_list))
+    if isinstance(B, ScaledLinearOperator):
+        return jnp.asarray(B.scalar) * diagonal(congruence_transform(a._A, B.operator))
+    from linox.operators.dense import Matrix  # circular import
+
+    # A dense-storage ``A`` is used as is; anything else has to be densified.
+    A = a._A.A if isinstance(a._A, Matrix) else a._A.todense()
+    BAt = B @ jnp.swapaxes(A, -1, -2)
+    return jnp.sum(A * jnp.swapaxes(BAt, -1, -2), axis=-1)
 
 
 class TransposedLinearOperator(LinearOperator):
@@ -1494,43 +1521,6 @@ def ldet(a: InverseLinearOperator) -> jax.Array:
         raise ValueError(msg)
 
     return 1 / ldet(a.operator)
-
-
-class CongruenceTransform(ProductLinearOperator):
-    r""":math:`A B A^\top`."""
-
-    def __init__(self, A: ArithmeticType, B: ArithmeticType) -> None:
-        self._A = utils.as_linop(A)
-        self._B = utils.as_linop(B)
-
-        super().__init__(self._A, self._B, self._A.T)
-
-    def transpose(self) -> LinearOperator:
-        """Return the transpose of this operator."""
-        return CongruenceTransform(self._A, self._B.T)
-
-    def tree_flatten(self) -> tuple[tuple[any, ...], dict[str, any]]:
-        """Flatten this operator into JAX pytree children and static data."""
-        children = (self._A, self._B)
-        aux_data = {}
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(
-        cls,
-        aux_data: dict[str, any],
-        children: tuple[any, ...],
-    ) -> "CongruenceTransform":
-        """Reconstruct this operator from JAX pytree children and static data."""
-        del aux_data
-        A, B = children
-        return cls(A=A, B=B)
-
-
-@plum.dispatch
-def congruence_transform(A: ArithmeticType, B: ArithmeticType) -> LinearOperator:  # noqa: F811
-    """Return the congruence transform ``A @ B @ A.T``."""
-    return CongruenceTransform(A, B)
 
 
 class PseudoInverseLinearOperator(LinearOperator):

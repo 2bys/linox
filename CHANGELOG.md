@@ -5,6 +5,26 @@ All notable changes to the `linox` project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Breaking: importing linox no longer enables `jax_enable_x64`.** `linox.operators.isotropic` and `linox.operators.toeplitz` used to switch on x64 globally at import time. Code that relied on this to get float64 must now enable it explicitly, e.g. `jax.config.update("jax_enable_x64", True)`.
+- **`inv()` and `pinv()` use structured rules.** They now dispatch to `linverse`/`lpinverse` and return an exact structured result when one is registered (e.g. the Woodbury form for `IsotropicScalingPlusSymmetricLowRank`), falling back to a lazy `InverseLinearOperator`/`PseudoInverseLinearOperator` otherwise. Code that checks `isinstance(inv(A), InverseLinearOperator)` may need updating.
+- **`inverse()` and `sqrt()` with `method="auto"`** still prefer an exact structured result for operators larger than `get_max_dense_n()`, instead of always switching to the approximate method. Dense `Matrix` operators keep taking the approximate path at that size.
+- `linox.linverse`, `linox.lpinverse` and `linox.lsqrt` are now the plum-dispatched implementations rather than aliases of `inv`/`pinv`/`sqrt`, so rules registered downstream via `.dispatch` are picked up by `inv`, `inverse`, `pinv` and `sqrt`.
+- `config.warn` prints to stderr when debug mode is on.
+
+### Added
+- `linox.typing`: public type aliases (`ArrayLike`, `LinearOperatorLike`, `ShapeLike`, ...). Prefer it over the private `linox._types`.
+- Structured `diagonal` for `LowRank` in O(nr).
+- Structured `congruence_transform` rules: `A (U S Uᵀ) Aᵀ` → `SymmetricLowRank(AU, S)`; dense `A` with `Identity` or `Diagonal` → `SymmetricLowRank`; scalars are pulled out of `ScaledLinearOperator`.
+
+### Fixed
+- `diagonal(CongruenceTransform)` no longer materialises the `(n, n)` product or a dense `B`; it splits sums and scaled operators and runs in O(nk²).
+- `ScaledLinearOperator` keeps JAX weak typing, so multiplying a float32 operator by a Python float no longer upcasts it to float64 under x64.
+- `LowRank` dtype is promoted from `U`, `S` and `V`, and a defaulted `S` follows `U`'s dtype.
+- Removed a duplicate `CongruenceTransform` / `congruence_transform` definition in `linox.operators.arithmetic`.
+
 ## [0.0.3] - 2026-02-06
 
 ### Added

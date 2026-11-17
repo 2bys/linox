@@ -23,12 +23,15 @@ from linox.linalg.woodbury import woodbury_solve
 from linox.operators.arithmetic import (
     AddLinearOperator,
     ProductLinearOperator,
+    congruence_transform,
+    diagonal,
     linverse,
     lsolve,
     lsqrt,
     slogdet,
 )
 from linox.operators.base import LinearOperator
+from linox.operators.dense import Matrix
 from linox.operators.diagonal import Diagonal
 from linox.operators.special import Identity
 
@@ -55,11 +58,14 @@ class LowRank(LinearOperator):
             assert U.shape[-1] == V.shape[-1]
 
         self._U = U
-        self._S = S if S is not None else jnp.ones(U.shape[-1])
+        # A defaulted S carries no data of its own, so it follows U's dtype
+        # instead of JAX's default (which would upcast float32 under x64).
+        self._S = S if S is not None else jnp.ones(U.shape[-1], dtype=U.dtype)
         self._V = V
 
+        dtype = jnp.result_type(*(x for x in (U, self._S, V) if x is not None))
         # Move to an abstract base class instead
-        super().__init__(shape=(*U.shape[:-2], U.shape[-2], U.shape[-2]), dtype=U.dtype)
+        super().__init__(shape=(*U.shape[:-2], U.shape[-2], U.shape[-2]), dtype=dtype)
 
     @property
     def U(self) -> jax.Array:
@@ -430,6 +436,40 @@ def _(A: PositiveDiagonalPlusSymmetricLowRank) -> tuple[jax.Array, jax.Array]:
     sign_inner, logdet_inner = jnp.linalg.slogdet(inner)
 
     return sign_D * sign_inner, logdet_D + logdet_inner
+
+
+# --------------------------------------------------------------------------- #
+# Structured diagonal / congruence rules
+# --------------------------------------------------------------------------- #
+
+
+@diagonal.dispatch
+def _(a: LowRank) -> jax.Array:
+    r""":math:`\operatorname{diag}(U \operatorname{diag}(S) V^\top)_i = \sum_j U_{ij} S_j V_{ij}`, in :math:`O(nr)`."""
+    return jnp.sum(a.U * a.S[..., None, :] * a.V, axis=-1)
+
+
+@congruence_transform.dispatch
+def _(A: LinearOperator | jax.Array, B: SymmetricLowRank) -> SymmetricLowRank:
+    r""":math:`A (U S U^\top) A^\top = (AU) S (AU)^\top`."""
+    return SymmetricLowRank(A @ B.U, B.S)
+
+
+@congruence_transform.dispatch
+def _(A: Matrix, B: Identity) -> SymmetricLowRank:
+    r"""For dense ``A`` of shape ``(n, k)``, :math:`A A^\top` is ``SymmetricLowRank(A, 1)``.
+
+    This keeps e.g. :func:`diagonal` at :math:`O(nk)` instead of materialising
+    the ``(n, n)`` product.
+    """
+    # `Identity` carries no data, so the result takes A's dtype.
+    return SymmetricLowRank(A.A, jnp.ones(B.shape[-1], dtype=A.dtype))
+
+
+@congruence_transform.dispatch
+def _(A: Matrix, B: Diagonal) -> SymmetricLowRank:
+    r""":math:`A \operatorname{diag}(d) A^\top` for dense ``A`` is ``SymmetricLowRank(A, d)``."""
+    return SymmetricLowRank(A.A, B.diag)
 
 
 # Register all low rank operators as PyTrees

@@ -27,8 +27,6 @@ from linox.operators.diagonal import Diagonal
 from linox.operators.special import Identity
 from linox.utils.checks import require
 
-jax.config.update("jax_enable_x64", True)
-
 
 def _require_symmetric(A: LinearOperator, *, num_probes: int = 3) -> None:
     """Raise unless ``A`` is symmetric.
